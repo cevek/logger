@@ -1,10 +1,11 @@
-import * as https from 'http';
-import {readFileSync, readdir, readFile, stat, createWriteStream} from 'fs';
 import * as Express from 'express';
+import * as basicAuth from 'express-basic-auth';
+import {createWriteStream, readdir, stat} from 'fs';
+import * as https from 'http';
 import * as mkdirp from 'mkdirp';
 import {promisify} from 'util';
-import {Exception, ClientException} from '.';
-import * as basicAuth from 'express-basic-auth';
+import {createBrotliDecompress} from 'zlib';
+import {Exception} from '.';
 
 const readdirAsync = promisify(readdir);
 const statAsync = promisify(stat);
@@ -71,10 +72,17 @@ express.post('/upload', auth, async (req, res, next) => {
             throw new Exception('filePos is not correct', {size, fromPos});
         }
         const stream = createWriteStream(projectDir + file, {flags: 'a'});
-        req.pipe(stream);
-        req.on('end', () => {
-            res.send('ok');
-        });
+        req.pipe(createBrotliDecompress())
+            .on('error', err => {
+                next(new Exception('Upload error', err));
+            })
+            .pipe(stream)
+            .on('close', () => {
+                res.send('ok');
+            })
+            .on('error', err => {
+                next(new Exception('Upload error', err));
+            });
     } catch (err) {
         next(err);
     }
